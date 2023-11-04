@@ -38,7 +38,9 @@ float g_flRotation[MAXPLAYERS+1],
 char g_sMapName[128], 
     g_sServerSlug[32], 
     g_sTableName[96], 
-    g_sPluginTitle[64];
+    g_sPluginTitle[64],
+    g_sTeamOneName[128],
+    g_sTeamTwoName[128];
 
 bool g_isOpKill = false;
 
@@ -65,6 +67,7 @@ enum struct PlayerStat {
     int penetrateds;
 }
 
+int killsPeerRound[MAXPLAYERS+1];
 PlayerStat stats[MAXPLAYERS+1];
 
 public void OnPluginStart()
@@ -133,15 +136,51 @@ public void OnPlayerRunCmdPost(int iClient, int iButtons, int iImpulse, const fl
 
 void OnRoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-    if (!WarMix_IsMatchLive())
+    if (WarMix_IsMatchLive())
     {
         g_isOpKill = false;
+
+        for(int i = 1; i <= MaxClients; i++)
+        {
+            if(IsClientConnected(i))
+            {
+                killsPeerRound[i] = 0;
+            }
+        }
     }
 }
 
 void OnRoundEnd(Event event, const char[] name, bool dontBroadcast)
 {
-    //
+    
+    for(int i = 1; i <= MaxClients; i++)
+    {
+        if(IsClientConnected(i))
+        {
+            switch (killsPeerRound[i])
+            {
+                case 0,1,2 :
+                {
+                }
+                case 3 :
+                {
+                    stats[i].triples++;
+                }
+                case 4 :
+                {
+                    stats[i].quadros++;
+                }
+                case 5 :
+                {
+                    stats[i].aces++;
+                }
+            }
+
+            killsPeerRound[i] = 0;
+        }
+    }
+
+    
 }
 
 public int WarMix_OnMatchStart(iMatchMode mode, const Players[], int numPlayers)
@@ -196,15 +235,17 @@ public int WarMix_OnMatchStart(iMatchMode mode, const Players[], int numPlayers)
     delete arrayPlayers;
 }
 
-public int WarMix_OnMatchEnd(iMatchMode mode, int winner_team, const winPlayers[], int numWinPlayers, const loosePlayers[], int numLoosePlayers)
+public int WarMix_OnMatchEnd(iMatchMode mode, int winnerTeam, const winPlayers[], int numWinPlayers, const loosePlayers[], int numLoosePlayers)
 {
+    char winnerName[128];
     JSONObject game = new JSONObject();
     JSONArray arrayPlayers = new JSONArray();
+    Format(winnerName, sizeof winnerName, winnerTeam == 2 ? g_sTeamOneName : g_sTeamTwoName);
 
     int scoreOne = WarMix_GetScore(2);
     int scoreTwo = WarMix_GetScore(3);
 
-    game.SetInt("team_winner", winner_team);
+    game.SetInt("team_winner", winnerTeam);
     game.SetInt("team_one_score", scoreOne);
     game.SetInt("team_two_score", scoreTwo);
     
@@ -234,8 +275,9 @@ public int WarMix_OnMatchEnd(iMatchMode mode, int winner_team, const winPlayers[
         ClearPlayer(client);
         delete player;
 
-        LR_ChangeClientValue(client, 300);
-        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За победу вы получаете {green}300 ELO{white}. {green}GG!");
+        LR_ChangeClientValue(client, g_iEloWin);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}Победила команда: {green}%s", winnerName);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За победу вы получаете {green}%d ELO{white}. {green}GG!", g_iEloWin);
         int newExp = LR_GetClientValue(client);
         MC_PrintToChat(client, "{rare}[По-Белорусски] {white}У вас: {green}%d ELO", newExp);
     }
@@ -265,21 +307,18 @@ public int WarMix_OnMatchEnd(iMatchMode mode, int winner_team, const winPlayers[
         arrayPlayers.Push(player);
         ClearPlayer(client);
         delete player;
+
+        LR_ChangeClientValue(client, -g_iEloLose);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}Победила команда: {green}%s", winnerName);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За поражение вы теряете {red}%d ELO{white}. {orange}В следующий раз повезет!", g_iEloLose);
+        int newExp = LR_GetClientValue(client);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}У вас: {green}%d ELO", newExp);
     }
 
     game.Set("players", arrayPlayers);
     EndGameRequest(game);
     delete arrayPlayers;
     delete game;
-    
-    /*
-        
-
-        LR_ChangeClientValue(client, -200);
-        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За поражение вы теряете {red}200 ELO{white}. {orange}В следующий раз повезет!");
-        int newExp = LR_GetClientValue(client);
-        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}У вас: {green}%d ELO", newExp);
-    */
 }
 
 void ClearPlayer(int client)
@@ -326,11 +365,13 @@ public Action OnPlayerDeath(Event event, const char[] name, bool dontBroadcast)
 
     if (IsClientInGame(client) && IsClientInGame(attacker))
     {
-        /*char clientSteam[128], attackerSteam[128];
-        GetClientAuthId(client, AuthId_Steam2, clientSteam, 30, true);
-        GetClientAuthId(client, AuthId_Steam2, attackerSteam, 30, true);*/
+        if (!attacker || GetClientTeam(client) == GetClientTeam(attacker))
+        {
+            return Plugin_Handled;
+        }
 
         stats[client].deaths++;
+        killsPeerRound[attacker]++;
 
         if (!g_isOpKill)
         {
@@ -438,11 +479,11 @@ void OnCreateGame(HTTPResponse response, any client)
         if (data.HasKey("game")) {
             JSONObject game = view_as<JSONObject>(data.Get("game"));
             g_iGameId = game.GetInt("id");
-
-            LogMessage("[OnCreateGame]: %d", g_iGameId);
+            game.GetString("team_one_name", g_sTeamOneName, sizeof g_sTeamOneName);
+            game.GetString("team_two_name", g_sTeamTwoName, sizeof g_sTeamTwoName);
+            
+            LogMessage("Матч начался, %s VS %s. ID: %d", g_iGameId, g_sTeamOneName, g_sTeamTwoName);
         }
-
-        // LogMessage("[OnCreateGame]: %s", jsonResponse);
         delete data;
     }
 }
