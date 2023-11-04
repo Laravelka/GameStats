@@ -27,7 +27,9 @@ public Plugin myinfo =
 
 int g_iWhirlInterval = 2,
     m_vecVelocity,
-    g_iGameId;
+    g_iGameId,
+    g_iEloWin = 300,
+    g_iEloLose = 200;
 
 float g_flRotation[MAXPLAYERS+1],
     g_flMinLenVelocity = 100.0,
@@ -80,16 +82,20 @@ public void OnPluginStart()
     }
 
     char sPath[PLATFORM_MAX_PATH];
-    BuildPath(Path_SM, sPath, sizeof(sPath), "configs/FirstMotd.ini");
-    KeyValues kv = new KeyValues("FirstMotd");
+    BuildPath(Path_SM, sPath, sizeof(sPath), "configs/GameStats.ini");
+    KeyValues kv = new KeyValues("GameStats");
     
     if (!FileExists(sPath, false)) {
         kv.SetString("server", "mix");
+        kv.SetNum("elo_win", 300);
+        kv.SetNum("elo_lose", 200);
         kv.ExportToFile(sPath);
     }
 
     if (kv.ImportFromFile(sPath)) {
         kv.GetString("server", g_sServerSlug, sizeof(g_sServerSlug));
+        kv.GetNum("elo_win", g_iEloWin);
+        kv.GetNum("elo_lose", g_iEloLose);
     } else {
         SetFailState("[GameStats] KeyValues Error!");
     }
@@ -227,6 +233,11 @@ public int WarMix_OnMatchEnd(iMatchMode mode, int winner_team, const winPlayers[
         arrayPlayers.Push(player);
         ClearPlayer(client);
         delete player;
+
+        LR_ChangeClientValue(client, 300);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За победу вы получаете {green}300 ELO{white}. {green}GG!");
+        int newExp = LR_GetClientValue(client);
+        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}У вас: {green}%d ELO", newExp);
     }
 
     for (int i = 0; i < numLoosePlayers; i++)
@@ -262,10 +273,7 @@ public int WarMix_OnMatchEnd(iMatchMode mode, int winner_team, const winPlayers[
     delete game;
     
     /*
-        LR_ChangeClientValue(client, 300);
-        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За победу вы получаете {green}300 ELO{white}. {green}GG!");
-        int newExp = LR_GetClientValue(client);
-        MC_PrintToChat(client, "{rare}[По-Белорусски] {white}У вас: {green}%d ELO", newExp);
+        
 
         LR_ChangeClientValue(client, -200);
         MC_PrintToChat(client, "{rare}[По-Белорусски] {white}За поражение вы теряете {red}200 ELO{white}. {orange}В следующий раз повезет!");
